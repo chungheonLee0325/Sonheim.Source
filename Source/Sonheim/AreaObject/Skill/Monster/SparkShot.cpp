@@ -1,0 +1,87 @@
+﻿// Fill out your copyright notice in the Description page of Project Settings.
+
+
+#include "SparkShot.h"
+
+#include "MaterialHLSLTree.h"
+#include "Sonheim/AreaObject/Player/SonheimPlayer.h"
+#include "Sonheim/Element/Derived/LightningBall.h"
+#include "Sonheim/Utilities/LogMacro.h"
+
+
+USparkShot::USparkShot()
+{
+	static ConstructorHelpers::FClassFinder<ALightningBall> LightningBallClass
+		(TEXT("/Script/Engine.Blueprint'/Game/_BluePrint/Element/LightningBall/BP_LightningBall.BP_LightningBall_C'"));
+	if (LightningBallClass.Succeeded())
+	{
+		LightingBallFactory = LightningBallClass.Class;
+	}
+}
+
+bool USparkShot::Activate(class AAreaObject* Caster, AAreaObject* Target)
+{
+	IsFired = false;
+
+	CurrentTime = 0.f;
+
+	if (!Super::Activate(Caster, Target)) return false;
+
+	return true;
+}
+
+void USparkShot::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+}
+
+bool USparkShot::Fire()
+{
+	if (IsFired) return false;
+
+	if (!Super::Fire()) return false;
+
+	FireSparkShot();
+
+	return true;
+}
+
+void USparkShot::FireSparkShot()
+{
+	IsFired = true;
+
+	float StartAngle{-30.f};
+	float AngleIncrease{10.f};
+
+	for (int32 i{}; i < AttackCount; ++i)
+	{
+		ALightningBall* SpawnedLightningBall{
+			GetWorld()->SpawnActor<ALightningBall>(LightingBallFactory, m_Caster->GetActorLocation(),
+			                                       m_Caster->GetActorRotation())
+		};
+
+		// ToDo : Notify에서 Index 주입
+		FAttackData* AttackData = GetAttackDataByIndex(0);
+		// ToDo : TempTarget -> m_Target으로 수정
+		ASonheimPlayer* TempTarget{Cast<ASonheimPlayer>(GetWorld()->GetFirstPlayerController()->GetPawn())};
+
+		float Angle{StartAngle + AngleIncrease * i};
+		FVector Direction{
+			FVector(FMath::Cos(FMath::DegreesToRadians(Angle)),
+			        FMath::Sin(FMath::DegreesToRadians(Angle)),
+			        0.f)
+		};
+
+		// 캐릭터 회전 고려해서 회전
+		FRotator Rotation{m_Caster->GetActorRotation()};
+		Direction = Rotation.RotateVector(Direction);
+		Direction.Normalize();
+
+		m_TargetPos = Direction;
+
+		if (SpawnedLightningBall)
+		{
+			SpawnedLightningBall->InitElement(m_Caster, m_Target, m_TargetPos, AttackData);
+		}
+	}
+}
