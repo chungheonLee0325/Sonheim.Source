@@ -2,12 +2,15 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Sonheim/Element/Trajectory/ProjectileTrajectoryPreviewActor.h"
+#include "Sonheim/UI/Notice/NoticeWidget.h"
 #include "PalCaptureComponent.generated.h"
 
 class APalSphere;
 class ASonheimPlayerState;
 class ABaseMonster;
 class ASonheimPlayer;
+class AProjectileTrajectoryPreviewActor;
 class UPalInventoryComponent;
 
 // 포획 UI 정보 전달을 위한 구조체
@@ -88,9 +91,8 @@ public:
     UFUNCTION(NetMulticast, Reliable)
     void Multicast_BeginCaptureReveal(ABaseMonster* TargetPal, const FPalCaptureRevealParams& Params, APalSphere* SourceSphere);
 
-    // 연출 끝난 뒤 실제로 결과 반영(서버 전용)
-    UFUNCTION(Server, Reliable)
-    void Server_ApplyCaptureOutcome(ABaseMonster* TargetPal, bool bSuccess);
+    // 연출 끝난 뒤 실제로 결과 반영(서버 전용, 서버 타이머에서만 호출)
+    void ApplyCaptureOutcome(ABaseMonster* TargetPal, bool bSuccess);
     
     // 델리게이트
     UPROPERTY(BlueprintAssignable)
@@ -108,8 +110,22 @@ public:
     UPROPERTY(EditDefaultsOnly, Category = "Pal Capture")
     int32 PalSphereSkillID = 15;
 
+    // 팰을 더 데려갈 수 없어 포획이 실패할 때 던진 플레이어에게 뜨는 배너. Detail의 {0}은 데려갈 수 있는 수다.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pal Capture|Notice")
+    FNoticeData PartyFullNotice;
+
+    // 조준 중 로컬 플레이어에게만 보이는 투척 궤적 점선
+    UPROPERTY(EditDefaultsOnly, Category = "Pal Capture|Trajectory Preview")
+    bool bShowTrajectoryPreview = true;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Pal Capture|Trajectory Preview")
+    FProjectileTrajectoryPreviewConfig TrajectoryPreviewConfig;
+
 protected:
     virtual void BeginPlay() override;
+    virtual void TickComponent(float DeltaTime, ELevelTick TickType,
+                               FActorComponentTickFunction* ThisTickFunction) override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
     UFUNCTION()
     void OnRep_IsThrowingPalSphere();
@@ -145,6 +161,9 @@ protected:
 
     int32 PickFailStage(float Guess, int32 Segments) const;
 private:
+    // 서버: PartyFullNotice를 이 컴포넌트의 플레이어에게 보낸다.
+    void NotifyPartyFull() const;
+
     UPROPERTY()
     ASonheimPlayer* OwnerPlayer;
 
@@ -164,6 +183,12 @@ private:
     void Server_CancelThrowPalSphere();
     
     void ApplyThrowingState(bool bThrowing);
+
+    UPROPERTY(Transient)
+    TObjectPtr<AProjectileTrajectoryPreviewActor> LocalTrajectoryPreview = nullptr;
+
+    void UpdateLocalTrajectoryPreview();
+    void EndLocalTrajectoryPreview();
 
     UFUNCTION(Server, Reliable)
     void Server_AttemptCapture(ABaseMonster* TargetPal, APalSphere* SourceSphere);

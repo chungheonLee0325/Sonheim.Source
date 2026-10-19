@@ -5,29 +5,28 @@
 #include "Sonheim/UI/Widget/Player/Inventory/InventoryWidget.h"
 #include "Sonheim/AreaObject/Player/SonheimPlayerController.h"
 #include "Sonheim/AreaObject/Player/SonheimPlayerState.h"
+#include "Sonheim/AreaObject/Player/Utility/InventoryComponent.h"
 #include "Sonheim/GameObject/Buildings/Storage/BaseContainer.h"
+#include "GameUIManagerSubsystem.h"
+#include "Sonheim/UI/System/UITags.h"
 
-void UContainerInteractionWidget::NativeConstruct()
+void UContainerInteractionWidget::NativeOnInitialized()
 {
-	Super::NativeConstruct();
-	
-	// 닫기 버튼 이벤트 바인딩
-	if (CloseButton)
-	{
-		CloseButton->OnClicked.AddDynamic(this, &UContainerInteractionWidget::OnCloseButtonClicked);
-	}
+	Super::NativeOnInitialized();
+	if (CloseButton) CloseButton->OnClicked.AddDynamic(this, &UContainerInteractionWidget::OnCloseButtonClicked);
 }
 
-void UContainerInteractionWidget::NativeDestruct()
+void UContainerInteractionWidget::NativeOnClosed()
 {
-	// 상자 닫기 처리
-	if (CurrentContainer)
+	// Tab 등으로 스택이 먼저 닫아도 서버의 상자를 놓아준다.
+	ReleaseContainer();
+	// 닫힌 동안은 가방이 바뀌어도 다시 그리지 않는다. 다시 열 때 OpenContainer가 묶고 새로 채운다.
+	if (InventoryComponent.IsValid() && PlayerInventoryWidget)
 	{
-		CurrentContainer->CloseContainer();
-		CurrentContainer = nullptr;
+		InventoryComponent->OnInventoryChanged.RemoveDynamic(PlayerInventoryWidget, &UInventoryWidget::UpdateInventoryFromData);
+		InventoryComponent->OnEquipmentChanged.RemoveDynamic(PlayerInventoryWidget, &UInventoryWidget::UpdateEquipmentFromData);
 	}
-	
-	Super::NativeDestruct();
+	Super::NativeOnClosed();
 }
 
 void UContainerInteractionWidget::OpenContainer(ABaseContainer* Container)
@@ -44,8 +43,11 @@ void UContainerInteractionWidget::OpenContainer(ABaseContainer* Container)
 		{
 			if (ASonheimPlayerState* PlayerState = PC->GetPlayerState<ASonheimPlayerState>())
 			{
+				InventoryComponent = PlayerState->m_InventoryComponent;
 				PlayerInventoryWidget->SetInventoryComponent(PlayerState->m_InventoryComponent);
 				PlayerInventoryWidget->SetContainerMode(true, Container, PC);
+				PlayerState->m_InventoryComponent->OnInventoryChanged.AddUniqueDynamic(PlayerInventoryWidget, &UInventoryWidget::UpdateInventoryFromData);
+				PlayerState->m_InventoryComponent->OnEquipmentChanged.AddUniqueDynamic(PlayerInventoryWidget, &UInventoryWidget::UpdateEquipmentFromData);
 			}
 		}
 	}
@@ -58,17 +60,17 @@ void UContainerInteractionWidget::OpenContainer(ABaseContainer* Container)
 		// ContainerWidget에 Container 참조 전달
 		ContainerInventoryWidget->SetOwningContainer(Container);
 	}
-    
-	// 마우스 커서 표시
-	if (APlayerController* PC = GetOwningPlayer())
-	{
-		PC->SetShowMouseCursor(true);
-	}
 }
 
 void UContainerInteractionWidget::CloseContainer()
 {
-    // 상자 닫기
+	ReleaseContainer();
+	// 입력 모드와 커서는 UI 스택이 남은 화면에 맞춘다.
+	CloseSelf();
+}
+
+void UContainerInteractionWidget::ReleaseContainer()
+{
     if (CurrentContainer)
     {
         // 서버에 닫기 요청
@@ -78,15 +80,6 @@ void UContainerInteractionWidget::CloseContainer()
             PlayerInventoryWidget->SetContainerMode(false);
 		}
 		CurrentContainer = nullptr;
-	}
-    
-	// UI 제거
-	RemoveFromParent();
-    
-	// 마우스 커서 숨기기
-	if (APlayerController* PC = GetOwningPlayer())
-	{
-		PC->SetShowMouseCursor(false);
 	}
 }
 

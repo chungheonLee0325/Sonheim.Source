@@ -1,0 +1,263 @@
+#pragma once
+#include "CoreMinimal.h"
+#include "Blueprint/UserWidget.h"
+#include "DungeonViewData.h"
+#include "DungeonViewWidget.generated.h"
+class UCanvasPanel;
+class UDynamicEntryBox;
+class UImage;
+class UTextBlock;
+class UProgressBar;
+class UWidget;
+/** One line of the objective list: a state mark, the kind's tag, the label, the count, and for optional lines their window and note. */
+UCLASS(Abstract)
+class SONHEIM_API UDungeonObjectiveRowWidget : public UUserWidget
+{
+	GENERATED_BODY()
+public:
+	void SetObjective(const FDungeonObjectiveViewData& Objective);
+	/** The mark and count take the kind's color while the line is open, DoneColor once it is done and MissedColor once it is missed. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor FinalColor = FSlateColor(FLinearColor(1.f, 0.7f, 0.2f));
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor MainColor = FSlateColor(FLinearColor::White);
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor OptionalColor = FSlateColor(FLinearColor(1.f, 0.7f, 0.2f));
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor DoneColor = FSlateColor(FLinearColor(0.35f, 0.85f, 0.45f));
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor MissedColor = FSlateColor(FLinearColor(0.55f, 0.6f, 0.66f));
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FText OpenMark = INVTEXT("○");
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FText DoneMark = INVTEXT("●");
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FText MissedMark = INVTEXT("×");
+	/** Drawn in StatusIcon once the line is done or missed; while it is open, the goal's icon. Without one, the text marks. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") TObjectPtr<UTexture2D> DoneIcon;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") TObjectPtr<UTexture2D> MissedIcon;
+protected:
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> StatusText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UImage> StatusIcon;
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> LabelText;
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> CountText;
+	// The kind's tag and the plate around it; both hide on a line whose kind has no tag.
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> KindText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UWidget> KindBadge;
+	// An optional line's window and note; each hides while empty.
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> WindowText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> NoteText;
+	/** The line's bonus as small inventory slots (USlotWidget::AddReadOnly). */
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UDynamicEntryBox> BonusBox;
+	UPROPERTY(EditAnywhere, Category="Dungeon") float BonusSlotSize = 32.f;
+};
+/** One step of the way through the dungeon, with an arrow in front of every step but the first. */
+UCLASS(Abstract)
+class SONHEIM_API UDungeonStepNodeWidget : public UUserWidget
+{
+	GENERATED_BODY()
+public:
+	void SetStep(const FDungeonStepViewData& Step);
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor DoneColor = FSlateColor(FLinearColor(0.55f, 0.64f, 0.75f));
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor CurrentColor = FSlateColor(FLinearColor(0.05f, 0.6f, 1.f));
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor UpcomingColor = FSlateColor(FLinearColor(1.f, 1.f, 1.f, 0.45f));
+protected:
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> LabelText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> ArrowText;
+	/** The room's icon, in the name's color. */
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UImage> StepIcon;
+};
+/** One player of the run: name, health, the crown of the player who started it, and a mark when down. */
+UCLASS(Abstract)
+class SONHEIM_API UDungeonPartyMemberWidget : public UUserWidget
+{
+	GENERATED_BODY()
+public:
+	void SetMember(const FDungeonMemberViewData& Member);
+	/** Health bar colors: healthy, below LowHealth, and down. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FLinearColor HealthyColor = FLinearColor(0.35f, 0.85f, 0.45f);
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FLinearColor LowColor = FLinearColor(1.f, 0.7f, 0.2f);
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FLinearColor DownColor = FLinearColor(1.f, 0.3f, 0.22f);
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon", meta=(ClampMin="0", ClampMax="1")) float LowHealth = 0.35f;
+protected:
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> NameText;
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UProgressBar> HealthBar;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UWidget> OwnerMark;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UWidget> DownMark;
+};
+/** One figure of the result: a label over a value. */
+UCLASS(Abstract)
+class SONHEIM_API UDungeonStatTileWidget : public UUserWidget
+{
+	GENERATED_BODY()
+public:
+	void SetStat(const FDungeonStatViewData& Stat);
+protected:
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> LabelText;
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> ValueText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UImage> TileIcon;
+};
+/** One reward slot of the result: the item's icon, its name and how many. */
+UCLASS(Abstract)
+class SONHEIM_API UDungeonRewardEntryWidget : public UUserWidget
+{
+	GENERATED_BODY()
+public:
+	void SetReward(const FDungeonRewardViewData& Reward);
+protected:
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UImage> Icon;
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> NameText;
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> CountText;
+};
+/** Marks a place an open objective line leads to: the line's icon and the distance, and on the screen's edge an arrow toward it. */
+UCLASS(Abstract)
+class SONHEIM_API UDungeonMarkerWidget : public UUserWidget
+{
+	GENERATED_BODY()
+public:
+	void SetMarker(const FDungeonMarkerViewData& Marker);
+	/** The distance under the icon; on the screen's edge the arrow turns toward Direction (screen space, y down). */
+	void Place(bool bEdge, const FVector2D& Direction, float Meters, const FText& Format);
+	/** The icon and arrow take the line's kind: MainColor for the stage's goals, OptionalColor for the optional ones. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor MainColor = FSlateColor(FLinearColor::White);
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor OptionalColor = FSlateColor(FLinearColor(1.f, 0.7f, 0.2f));
+	/** How far from the icon's center the edge arrow sits. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") float ArrowOffset = 24.f;
+protected:
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UImage> Icon;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> DistanceText;
+	/** A glyph that points right before it is turned, such as ›. */
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> Arrow;
+};
+/** The run's map: the floor plan, the room of the stage the run is in lit, each stage room's icon, the switches the open lines lead to,
+ * the other players as dots and the local player as an arrow turned with the camera. As seen from above, X runs right and Y down. */
+UCLASS(Abstract)
+class SONHEIM_API UDungeonMinimapWidget : public UUserWidget
+{
+	GENERATED_BODY()
+public:
+	void SetView(const FDungeonStageViewData& Data);
+	/** The other players' dots; the local player's arrow keeps the color its Widget Blueprint gives it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor MemberColor = FSlateColor(FLinearColor(0.35f, 0.85f, 0.45f));
+	/** Over the room of the stage the run is in. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor CurrentRoomColor = FSlateColor(FLinearColor(0.05f, 0.6f, 1.f, 0.3f));
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor RoomIconColor = FSlateColor(FLinearColor(0.55f, 0.64f, 0.75f));
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor CurrentRoomIconColor = FSlateColor(FLinearColor::White);
+	/** A switch an open line leads to takes the line's kind. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor MainMarkColor = FSlateColor(FLinearColor::White);
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor OptionalMarkColor = FSlateColor(FLinearColor(1.f, 0.7f, 0.2f));
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon", meta=(ClampMin="1")) float IconSize = 14.f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon", meta=(ClampMin="1")) float MemberSize = 7.f;
+protected:
+	virtual void NativeTick(const FGeometry& Geometry, float DeltaTime) override;
+	/** An image on MapLayer: stretched over an area, or centred on a spot at its brush's size. */
+	UImage* AddMark(const FSlateBrush& Brush, const FSlateColor& Tint, int32 ZOrder, bool bArea);
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UImage> MapImage;
+	/** Over MapImage and as large: the rooms, the marks and the players. */
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UCanvasPanel> MapLayer;
+	/** On MapLayer; it points right before it turns. */
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UImage> PlayerArrow;
+	/** What SetView put on the map, each over its world area; an icon's area is its spot. */
+	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> ViewMarks;
+	TArray<FBox2D> ViewAreas;
+	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> MemberDots;
+	FBox2D Bounds = FBox2D(ForceInit);
+};
+UCLASS()
+class SONHEIM_API UDungeonViewWidget : public UUserWidget
+{
+	GENERATED_BODY()
+public:
+	void ApplyViewData(const FDungeonStageViewData& Data);
+	UPROPERTY(BlueprintReadOnly, Category="Dungeon") FDungeonStageViewData ViewData;
+	/** Seconds the screen of a finished run stays up before it folds away; 0 keeps it until the next run. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") float FinishedSeconds = 10.f;
+	/** The countdown turns TimeWarningColor once this many seconds are left. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") float TimeWarningSeconds = 30.f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor TimeWarningColor = FSlateColor(FLinearColor(1.f, 0.3f, 0.22f));
+	/** The best time on the pace line once the run is slower than it; the rest of the card keeps its colors. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor PaceBehindColor = FSlateColor(FLinearColor(1.f, 0.36f, 0.3f));
+	/** The title's color on a won and on a failed run; while the run goes it keeps the color the Widget Blueprint gives it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor SucceededTitleColor = FSlateColor(FLinearColor(1.f, 0.7f, 0.2f));
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") FSlateColor FailedTitleColor = FSlateColor(FLinearColor(1.f, 0.36f, 0.3f));
+	/** Drawn on MarkerLayer for each place the open lines lead to. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") TSubclassOf<UDungeonMarkerWidget> MarkerClass;
+	/** How far inside the screen's edge the marker of a place off screen stays. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon", meta=(ClampMin="0")) float MarkerEdgeInset = 64.f;
+	/** The screen's panels by name, which a marker on the edge must not sit behind; it moves to the nearest free side of the panel. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon") TArray<FName> MarkerBlockers = {TEXT("LeftColumn"), TEXT("RightColumn"), TEXT("BossPanel")};
+	/** How far the centre of an edge marker stays from those panels: half a marker and some room. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon", meta=(ClampMin="0")) float MarkerClearance = 32.f;
+protected:
+	virtual void NativeConstruct() override;
+	virtual void NativeTick(const FGeometry& Geometry, float DeltaTime) override;
+	void RefreshTime();
+	/** The pace line: the run's time from its start on the synchronized server clock, and the best time from before the run. */
+	void RefreshPace();
+	FSlateColor RunBestColor;
+	/** Fills the boss's action bar from the server time. */
+	void RefreshBossAction();
+	/** Shown to participants; a finished run's screen folds away once FinishedSeconds pass. */
+	void RefreshShown();
+	/** One marker widget per place of the view data. */
+	void SyncMarkers();
+	/** Puts each marker over its place, or on the screen's edge toward it, every frame. */
+	void PlaceMarkers(const FGeometry& Geometry);
+	UPROPERTY(Transient) TArray<TObjectPtr<UDungeonMarkerWidget>> MarkerWidgets;
+	FTimerHandle FinishedTimer;
+	int32 FinishedRevision = -1;
+	bool bFinishedExpired = false;
+	FSlateColor TimeColor;
+	FSlateColor TitleColor;
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> TitleText;
+	// Every other part is optional, so a screen shows only what it lays out.
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> ObjectiveText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> CountText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UProgressBar> ObjectiveProgress;
+	// The branch's label and the plate around it; it hides with an empty branch. Without the plate, BranchText hides alone.
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> BranchText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UWidget> BranchBadge;
+	// The dungeon's name, its goal, and the way through it.
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> DungeonTitleText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> GoalText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UDynamicEntryBox> StepNodes;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> StepText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UProgressBar> StepProgress;
+	// Counts the stage's time limit down. Screens without a limit never show it.
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> TimeText;
+	/** Shown with TimeText, in its color. */
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UImage> TimeIcon;
+	// The run's time and the best time from before it, on a row that shows while the run goes.
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UWidget> PaceRow;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> ElapsedText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> RunBestText;
+	// The stage's objective lines and how many are done; the optional lines on their own card, which hides while there is none.
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UDynamicEntryBox> ObjectiveRows;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> ObjectivesDoneText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UDynamicEntryBox> OptionalRows;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UWidget> OptionalPanel;
+	// The players of the run, on a card that hides while the run is not going.
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UDynamicEntryBox> PartyRows;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UWidget> PartyPanel;
+	// Shown while the boss lives.
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UWidget> BossPanel;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> BossNameText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UProgressBar> BossHealthBar;
+	// What the boss does and how far along, its phase, how close it is to a knockdown, and the capture hint while it can be taken.
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> BossActionText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UImage> BossActionIcon;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UProgressBar> BossActionBar;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> BossPhaseText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UImage> BossPhaseIcon;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UProgressBar> BossBreakBar;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> BossHintText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UImage> BossHintIcon;
+	// The result: tiles of figures, reward slots or reward lines, the record, and the new-best badge.
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UDynamicEntryBox> StatTiles;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UDynamicEntryBox> RewardSlots;
+	/** The square of a reward's item slot on the result card. */
+	UPROPERTY(EditAnywhere, Category="Style") float RewardSlotSize = 64.f;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> RewardText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> SummaryText;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UWidget> NewBestBadge;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> NewBestText;
+	/** Over the result's title, in the title's color. */
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UImage> OutcomeEmblem;
+	/** A canvas over the whole screen, under the cards, that holds the markers. */
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UCanvasPanel> MarkerLayer;
+	/** The run's map, on a plate that folds away while there is no map. */
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UDungeonMinimapWidget> Minimap;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UWidget> MinimapPanel;
+};

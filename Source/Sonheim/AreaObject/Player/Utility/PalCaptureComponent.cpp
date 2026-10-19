@@ -6,13 +6,24 @@
 #include "Sonheim/AreaObject/Player/SonheimPlayerController.h"
 #include "Sonheim/AreaObject/Skill/Base/BaseSkill.h"
 #include "Sonheim/Animation/Player/PlayerAniminstance.h"
+#include "Sonheim/Element/Derived/Parabola/PalSphere.h"
 #include "Sonheim/UI/Widget/Player/PlayerStatusWidget.h"
+#include "Sonheim/Utilities/StringTableIds.h"
 #include "PalInventoryComponent.h"
 
 UPalCaptureComponent::UPalCaptureComponent()
 {
-	PrimaryComponentTick.bCanEverTick = false;
+	// 궤적 프리뷰를 그리는 동안만 켠다
+	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bStartWithTickEnabled = false;
 	SetIsReplicatedByDefault(true);
+
+	PartyFullNotice.Category = LOCTABLE(SONHEIM_ST_NOTICE, "PartyFull.Category");
+	PartyFullNotice.Title = LOCTABLE(SONHEIM_ST_NOTICE, "PartyFull.Title");
+	PartyFullNotice.Detail = LOCTABLE(SONHEIM_ST_NOTICE, "PartyFull.Detail");
+	PartyFullNotice.Symbol = INVTEXT("!");
+	PartyFullNotice.Icon = NoticeIcon(TEXT("T_IconWarning"));
+	PartyFullNotice.Tone = ENoticeTone::Warning;
 }
 
 void UPalCaptureComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -57,6 +68,19 @@ void UPalCaptureComponent::BeginPlay()
 	}
 }
 
+void UPalCaptureComponent::TickComponent(float DeltaTime, ELevelTick TickType,
+                                         FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	UpdateLocalTrajectoryPreview();
+}
+
+void UPalCaptureComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	EndLocalTrajectoryPreview();
+	Super::EndPlay(EndPlayReason);
+}
+
 void UPalCaptureComponent::StartThrowPalSphere()
 {
 	if (!OwnerPlayer)
@@ -76,6 +100,8 @@ void UPalCaptureComponent::ThrowPalSphere()
 	if (!OwnerPlayer || !bIsThrowingPalSphere)
 		return;
 
+	// 서버 응답(OnRep)을 기다리지 않고 바로 지운다
+	EndLocalTrajectoryPreview();
 	Server_ThrowPalSphere();
 
 	OnMonsterDetected(nullptr);
@@ -106,6 +132,7 @@ void UPalCaptureComponent::CancelThrowPalSphere()
 	if (!bIsThrowingPalSphere)
 		return;
 
+	EndLocalTrajectoryPreview();
 	OnMonsterDetected(nullptr);
 
 	Server_CancelThrowPalSphere();
@@ -160,7 +187,55 @@ void UPalCaptureComponent::ApplyThrowingState(bool bThrowing)
 				Widget->SetEnableCrossHair(bThrowing);
 			}
 		}
+
+		if (bThrowing && bShowTrajectoryPreview && OwnerPlayer->HasPalSphere())
+		{
+			SetComponentTickEnabled(true);
+			UpdateLocalTrajectoryPreview();
+		}
+		else
+		{
+			EndLocalTrajectoryPreview();
+		}
 	}
+}
+
+void UPalCaptureComponent::UpdateLocalTrajectoryPreview()
+{
+	if (!OwnerPlayer || !OwnerPlayer->GetController() || !GetWorld())
+	{
+		return;
+	}
+
+	// APalSphere가 실제로 던질 때와 같은 값: 시전자 위치·방향에서 스폰, 카메라 트레이스로 거리 결정
+	const FVector SpawnLocation = OwnerPlayer->GetActorLocation();
+	const FVector SpawnForward = OwnerPlayer->GetActorForwardVector();
+	const FVector TargetLocation = APalSphere::TraceThrowTarget(OwnerPlayer, nullptr);
+	const FVector Velocity = APalSphere::SuggestThrowVelocity(
+		OwnerPlayer, SpawnLocation, SpawnForward, TargetLocation, APalSphere::PreviewArcValue);
+
+	if (!IsValid(LocalTrajectoryPreview))
+	{
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Owner = OwnerPlayer;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		LocalTrajectoryPreview = GetWorld()->SpawnActor<AProjectileTrajectoryPreviewActor>(
+			AProjectileTrajectoryPreviewActor::StaticClass(), FTransform::Identity, SpawnParams);
+	}
+	if (LocalTrajectoryPreview)
+	{
+		LocalTrajectoryPreview->UpdatePreview(SpawnLocation, Velocity, OwnerPlayer, TrajectoryPreviewConfig);
+	}
+}
+
+void UPalCaptureComponent::EndLocalTrajectoryPreview()
+{
+	SetComponentTickEnabled(false);
+	if (IsValid(LocalTrajectoryPreview))
+	{
+		LocalTrajectoryPreview->Destroy();
+	}
+	LocalTrajectoryPreview = nullptr;
 }
 
 void UPalCaptureComponent::AttemptCapture(ABaseMonster* TargetPal, APalSphere* SourceSphere)
@@ -202,8 +277,9 @@ float UPalCaptureComponent::CalculateCaptureRate(ABaseMonster* TargetPal) const
 	return FMath::Clamp(rate, 0.f, 1.f);
 }
 
-void UPalCaptureComponent::Server_ApplyCaptureOutcome_Implementation(ABaseMonster* TargetPal, bool bSuccess)
+void UPalCaptureComponent::ApplyCaptureOutcome(ABaseMonster* TargetPal, bool bSuccess)
 {
+	if (!GetOwner() || !GetOwner()->HasAuthority()) return;
 	if (!TargetPal || !OwnerPlayer || !PalInventory) return;
 
 	if (bSuccess)
@@ -212,11 +288,14 @@ void UPalCaptureComponent::Server_ApplyCaptureOutcome_Implementation(ABaseMonste
 		{
 			TargetPal->SetPartnerOwner(OwnerPlayer);
 			PalInventory->AddPal(TargetPal);
+			if (ASonheimPlayerState* OwnerState = OwnerPlayer->GetPlayerState<ASonheimPlayerState>())
+				OwnerState->ReportDeed(EPlayerDeed::Capture, TargetPal->m_AreaObjectID);
 		}
 		else
 		{
 			// 연출 중에 팰 인벤이 가득 찼다면 실패로 처리
 			bSuccess = false;
+			NotifyPartyFull();
 		}
 	}
 
@@ -241,9 +320,12 @@ void UPalCaptureComponent::Server_AttemptCapture_Implementation(ABaseMonster* Ta
 	const int32 randomValue = FMath::RandRange(1, 100);
 	bool bCaptureSuccess = (randomValue <= capturePercent);
 
-	// 인벤 가득이면 강제 실패
-	if (bCaptureSuccess && PalInventory->GetOwnedPalCount() >= PalInventory->MaxPalCount)
+	// 인벤 가득이면 강제 실패. 판정과 상관없이 실패하므로 던진 플레이어에게 이유를 알린다.
+	if (PalInventory->GetOwnedPalCount() >= PalInventory->MaxPalCount)
+	{
 		bCaptureSuccess = false;
+		NotifyPartyFull();
+	}
 
 	// 2) 연출 파라미터 계산(서버 기준 → 모두 동일)
 	const float Guess = captureRate;
@@ -279,9 +361,18 @@ void UPalCaptureComponent::Server_AttemptCapture_Implementation(ABaseMonster* Ta
 	FTimerHandle ApplyHandle;
 	GetWorld()->GetTimerManager().SetTimer(
 		ApplyHandle,
-		FTimerDelegate::CreateUObject(this, &UPalCaptureComponent::Server_ApplyCaptureOutcome, TargetPal,
+		FTimerDelegate::CreateUObject(this, &UPalCaptureComponent::ApplyCaptureOutcome, TargetPal,
 		                              bCaptureSuccess),
 		RevealTotal, false);
+}
+
+void UPalCaptureComponent::NotifyPartyFull() const
+{
+	ASonheimPlayerController* Controller = OwnerPlayer ? OwnerPlayer->GetController<ASonheimPlayerController>() : nullptr;
+	if (!Controller || !PalInventory) return;
+	FNoticeData Data = PartyFullNotice;
+	Data.Detail = FText::Format(PartyFullNotice.Detail, PalInventory->MaxPalCount);
+	Controller->PushNotice(ENoticeSlot::Feed, TEXT("Capture"), Data);
 }
 
 void UPalCaptureComponent::OnRep_IsThrowingPalSphere()

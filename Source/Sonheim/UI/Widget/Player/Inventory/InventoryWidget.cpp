@@ -13,12 +13,16 @@
 #include "Sonheim/AreaObject/Player/Utility/InventoryComponent.h"
 #include "Sonheim/GameObject/Buildings/Utility/ContainerComponent.h"
 #include "Sonheim/UI/Widget/GameObject/ContainerWidget.h"
+#include "GameUIManagerSubsystem.h"
+#include "Sonheim/UI/System/UITags.h"
 
 #include "Sonheim/AreaObject/Player/SonheimPlayerController.h"
 
 void UInventoryWidget::NativePreConstruct()
 {
 	Super::NativePreConstruct();
+	// A widget opened again keeps the slots it made the first time.
+	if (!IsDesignTime() && SlotWidgets.Num() == GridRows * GridColumns) return;
 	// 그리드 패널이 존재하고 슬롯 위젯 클래스가 지정되었는지 확인
 	if (SlotGrid && SlotWidgetClass)
 	{
@@ -89,29 +93,14 @@ void UInventoryWidget::NativeConstruct()
 
 void UInventoryWidget::UpdateInventoryFromData(const TArray<FInventoryItem>& InventoryData)
 {
-	// 슬롯 위젯 배열이 비어있지 않은지 확인
-	if (SlotWidgets.Num() > 0)
+	// Every slot is offered its item; only those whose item or count changed redraw (a swap touches two of them).
+	for (int32 i = 0; i < SlotWidgets.Num(); i++)
 	{
-		// 모든 슬롯 초기화
-		for (USlotWidget* SlotWidget : SlotWidgets)
-		{
-			if (SlotWidget)
-			{
-				SlotWidget->ClearSlot();
-			}
-		}
-
-		// 인벤토리 데이터로 슬롯 업데이트
-		for (int32 i = 0; i < InventoryData.Num() && i < SlotWidgets.Num(); i++)
-		{
-			const FItemData* ItemData = m_GameInstance->GetDataItem(InventoryData[i].ItemID);
-			if (ItemData == nullptr)
-			{
-				return;
-			}
-
-			SlotWidgets[i]->SetItemData(ItemData, InventoryData[i].Count);
-		}
+		USlotWidget* SlotWidget = SlotWidgets[i];
+		if (!SlotWidget) continue;
+		const FItemData* ItemData = InventoryData.IsValidIndex(i) ? m_GameInstance->GetDataItem(InventoryData[i].ItemID) : nullptr;
+		if (ItemData) SlotWidget->SetItemData(ItemData, InventoryData[i].Count);
+		else if (!SlotWidget->IsEmpty()) SlotWidget->ClearSlot();
 	}
 }
 
@@ -262,13 +251,13 @@ void UInventoryWidget::BindSlotEvents(USlotWidget* SlotWidget)
 		return;
 
 	// 클릭 이벤트 바인딩
-	SlotWidget->OnItemClicked.AddDynamic(this, &UInventoryWidget::OnSlotClicked);
+	SlotWidget->OnItemClicked.AddUniqueDynamic(this, &UInventoryWidget::OnSlotClicked);
 
 	// 드래그 시작 이벤트 바인딩
-	SlotWidget->OnItemDragStarted.AddDynamic(this, &UInventoryWidget::OnSlotDragStarted);
+	SlotWidget->OnItemDragStarted.AddUniqueDynamic(this, &UInventoryWidget::OnSlotDragStarted);
 
 	// 드롭 이벤트 바인딩
-	SlotWidget->OnItemDropped.AddDynamic(this, &UInventoryWidget::OnSlotDropped);
+	SlotWidget->OnItemDropped.AddUniqueDynamic(this, &UInventoryWidget::OnSlotDropped);
 }
 
 void UInventoryWidget::SwapInventoryItems(int32 FromIndex, int32 ToIndex)
@@ -325,13 +314,6 @@ void UInventoryWidget::HandleInventorySlotInteraction(USlotWidget* SlotWidget, b
 				ItemData->ItemCategory == EItemCategory::Weapon))
 			{
 				InventoryComponent->EquipItemByIndex(SlotWidget->SlotIndex);
-			}
-			// ToDo : 임시코드 - 베타 발표용
-			else if (ItemData->ItemID == 1 || ItemData->ItemID == 5 || ItemData->ItemID == 10 || ItemData->ItemID == 15)
-			{
-				int itemCount = InventoryComponent->GetItemCount(ItemData->ItemID);
-				InventoryComponent->RemoveItem(ItemData->ItemID, itemCount);
-				InventoryComponent->GetSonheimPlayer()->RestoreStair(ItemData->ItemID, itemCount);
 			}
 			// 소비 아이템인 경우 사용 (추가 구현 필요)
 			// else if (ItemData && ItemData->ItemCategory == EItemCategory::Consumable)
@@ -403,18 +385,24 @@ void UInventoryWidget::HandleTrashDrop(USlotWidget* FromSlot, bool bDiscardMode)
 {
 	if (!FromSlot || !InventoryComponent) return;
 
-	// 팝업 생성
-	if (!ConfirmClass) return;
-	UConfirmWidget* W = CreateWidget<UConfirmWidget>(this, ConfirmClass);
-	if (!W) return;
-
-	PendingFromSlot = FromSlot;
-	PendingDiscardMode = bDiscardMode;
-
+	UGameUIManagerSubsystem* UI = UGameUIManagerSubsystem::Get(this);
+	const FItemData* Item = m_GameInstance ? m_GameInstance->GetDataItem(FromSlot->ItemID) : nullptr;
+	if (!UI || !Item) return;
 	// 수량 선택 필요(스택형)는 팝업에서 판단하도록 MaxCount=슬롯 수량 전달
-	W->Setup(FromSlot->ItemID, FromSlot->Quantity, bDiscardMode);
-	W->OnConfirm.AddDynamic(this, &UInventoryWidget::OnConfirmTrashAction);
-	W->AddToViewport();
+	FItemQuantityView View;
+	View.Icon = Item->ItemIcon;
+	View.Name = Item->ItemName;
+	View.MaxCount = FromSlot->Quantity;
+	View.bDiscard = bDiscardMode;
+	const int32 SlotIndex = FromSlot->SlotIndex;
+	UI->Open<UConfirmWidget>(UITags::ItemQuantity, [this, View, SlotIndex, bDiscardMode](UConfirmWidget& Popup)
+	{
+		Popup.Setup(View);
+		Popup.OnResult.BindWeakLambda(this, [this, SlotIndex, bDiscardMode](UGameUIPopupWidget& Answered, const bool bConfirmed)
+		{
+			if (bConfirmed) OnConfirmTrashAction(SlotIndex, CastChecked<UConfirmWidget>(&Answered)->GetCount(), bDiscardMode);
+		});
+	});
 }
 
 void UInventoryWidget::SetContainerMode(bool bEnabled, class ABaseContainer* Container, ASonheimPlayerController* PC)
@@ -424,11 +412,10 @@ void UInventoryWidget::SetContainerMode(bool bEnabled, class ABaseContainer* Con
 	m_PlayerController = PC;
 }
 
-void UInventoryWidget::OnConfirmTrashAction(int32 Count, bool bDiscardMode)
+void UInventoryWidget::OnConfirmTrashAction(const int32 Index, int32 Count, bool bDiscardMode)
 {
-	if (!InventoryComponent || !PendingFromSlot.IsValid()) return;
+	if (!InventoryComponent) return;
 
-	const int32 Index = PendingFromSlot.Get()->SlotIndex;
 	const int32 UseCount = FMath::Max(1, Count);
 
 	if (bDiscardMode)
@@ -441,6 +428,4 @@ void UInventoryWidget::OnConfirmTrashAction(int32 Count, bool bDiscardMode)
 		// 버리기(바닥 드롭)
 		InventoryComponent->ServerDropItemByIndex(Index, UseCount);
 	}
-
-	PendingFromSlot.Reset();
 }

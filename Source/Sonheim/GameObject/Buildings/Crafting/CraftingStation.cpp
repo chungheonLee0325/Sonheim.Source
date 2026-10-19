@@ -9,15 +9,24 @@
 #include "Sonheim/AreaObject/Player/SonheimPlayerController.h"
 #include "Sonheim/AreaObject/Player/SonheimPlayerState.h"
 #include "Sonheim/AreaObject/Player/Utility/InventoryComponent.h"
+#include "Sonheim/GameManager/SonheimGameInstance.h"
 #include "Sonheim/ResourceManager/SonheimGameType.h"
 #include "Sonheim/UI/Widget/GameObject/Crafting/CraftingQueueWidget.h"
 #include "Kismet/GameplayStatics.h"
 #include "Sonheim/Utilities/InventoryResourceProvider.h"
+#include "Sonheim/Utilities/StringTableIds.h"
 
 ACraftingStation::ACraftingStation()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	bReplicates = true;
+
+	CompletedNotice.Category = LOCTABLE(SONHEIM_ST_NOTICE, "CraftDone.Category");
+	CompletedNotice.Title = LOCTABLE(SONHEIM_ST_NOTICE, "CraftDone.Title");
+	CompletedNotice.Detail = LOCTABLE(SONHEIM_ST_NOTICE, "CraftDone.Detail");
+	CompletedNotice.Symbol = INVTEXT("✓");
+	CompletedNotice.Icon = NoticeIcon(TEXT("T_IconCraft"));
+	CompletedNotice.Tone = ENoticeTone::Information;
 
 	StationMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("StationMesh"));
 	RootComponent = StationMesh;
@@ -327,11 +336,24 @@ void ACraftingStation::ServerAddWork_Implementation(float WorkDelta, class ASonh
 			// 작업 종료
 			bHasActiveWork = false;
 			ActiveWork.WorkAccumulated = 0.f;
+			NotifyCompleted(Worker);
 		}
 	}
 
 	//ForceNetUpdate();
 	OnRep_ActiveWork();
+}
+
+void ACraftingStation::NotifyCompleted(const ASonheimPlayer* Worker) const
+{
+	ASonheimPlayerController* Controller = Worker ? Worker->GetController<ASonheimPlayerController>() : nullptr;
+	USonheimGameInstance* GameInstance = GetGameInstance<USonheimGameInstance>();
+	const FItemData* Item = GameInstance ? GameInstance->GetDataItem(ActiveWork.ResultItemID) : nullptr;
+	if (!Controller || !Item) return;
+	FNoticeData Data = CompletedNotice;
+	Data.Title = FText::Format(CompletedNotice.Title, Item->ItemName);
+	Data.Detail = FText::Format(CompletedNotice.Detail, CompletedToCollect);
+	Controller->PushNotice(ENoticeSlot::Feed, TEXT("Crafting"), Data);
 }
 
 void ACraftingStation::ServerCollectAll_Implementation(ASonheimPlayer* Player)
@@ -341,6 +363,10 @@ void ACraftingStation::ServerCollectAll_Implementation(ASonheimPlayer* Player)
 	if (UInventoryComponent* Inv = Player->GetInventoryComponent())
 	{
 		if (CompletedToCollect > 0) Inv->AddItem(ActiveWork.ResultItemID, CompletedToCollect);
+	}
+	if (ASonheimPlayerState* Crafter = Player->GetPlayerState<ASonheimPlayerState>())
+	{
+		Crafter->ReportDeed(EPlayerDeed::Craft, ActiveWork.ResultItemID, CompletedToCollect);
 	}
 
 	// 수령한만큼 아이템 차감

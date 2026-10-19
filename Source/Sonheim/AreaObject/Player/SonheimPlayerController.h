@@ -5,9 +5,13 @@
 #include "CoreMinimal.h"
 #include "SonheimPlayer.h"
 #include "GameFramework/PlayerController.h"
+#include "GameplayTagContainer.h"
+#include "Sonheim/UI/Notice/NoticeSubsystem.h"
 #include "SonheimPlayerController.generated.h"
 
 struct FInputActionValue;
+class UGameUIManagerSubsystem;
+class UGameUIScreenWidget;
 //DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnCurrencyChangeDelegate, ECurrencyType, CurrencyType, int,
 //                                               CurrencyValue, int, Delta);
 
@@ -36,15 +40,29 @@ public:
 
 	class UPlayerStatusWidget* GetPlayerStatusWidget() const;
 
-	// 상태 조회
-	bool GetIsMenuActivate() { return IsMenuActivate; }
+	// 열린 화면이 이동·공격 같은 게임 입력을 막는지
+	bool IsUIBlockingInput() const;
 
 	UFUNCTION(Client, Unreliable)
 	void Client_DisplayItemPopup(int32 ItemID, int32 Delta);
 
+	/** Shows a notice on this player's screen: at once on the player's own machine, sent there from the server otherwise. The server
+	 * calls it for what it decides, such as a level gained or a capture without room. */
+	void PushNotice(ENoticeSlot Slot, FName Channel, const FNoticeData& Data);
+	UFUNCTION(Client, Reliable)
+	void Client_PushNotice(ENoticeSlot Slot, FName Channel, const FNoticeData& Data);
+
+	/** Opens the quest dialog of a quest giver the player used, on the player's screen. */
+	UFUNCTION(Client, Reliable)
+	void Client_OpenQuestDialog(AActor* Target);
+
 protected:
 	// 입력 설정
 	virtual void SetupInputComponent() override;
+
+	// 새로 받은 폰이 서 있는 섬 지역의 이름을 보인다. 지역 안에서 태어난 폰은 그 지역에 걸어 들어간 적이 없다.
+	UFUNCTION()
+	void ShowRegionOfPawn(APawn* PreviousPawn, APawn* NewPawn);
 
 private:
 	// Input Action
@@ -100,6 +118,35 @@ private:
 	/** Called for CKey input */
 	void On_CKey_Pressed(const FInputActionValue& InputActionValue);
 	void On_CKey_Released(const FInputActionValue& InputActionValue);
+	void On_Dex_Pressed(const FInputActionValue& InputActionValue);
+	void On_Map_Pressed(const FInputActionValue& InputActionValue);
+	/** A tab's own key (K, J, M): closes its screen if it is open, opens it as the tab otherwise; not over a box or a station. */
+	void ToggleTab(FGameplayTag Screen);
+public:
+	/** Opens a menu tab's screen (UITags::Inventory, MonsterDex, QuestJournal, WorldMap) in place of the tab showing, if one is;
+	 * OnReady runs once it shows. */
+	void OpenTab(FGameplayTag Screen, TFunction<void(UGameUIScreenWidget&)> OnReady = nullptr);
+	/** The server opening a tab's screen on this player's machine, as an active fast travel stone opens the map. */
+	UFUNCTION(Client, Reliable)
+	void Client_OpenTab(FGameplayTag Screen);
+private:
+	void OpenMenu(TFunction<void(UGameUIScreenWidget&)> OnReady = nullptr);
+	/** The menu's tab actions (IMC_Menu: Q and E, the bumpers) step the tabs while a tab's screen is on top; returns whether they did. */
+	bool StepTab(int32 Dir);
+	/** The top screen when it is one of the menu bar's tabs, empty otherwise. */
+	FGameplayTag ShowingTab() const;
+private:
+	void On_Journal_Pressed(const FInputActionValue& InputActionValue);
+
+
+	/** Development builds: QuestSet <QuestID> <Active|Ready|Done> puts one of this player's quests in that state on the server,
+	 * as if played there, so a later quest can be tried without playing the ones before it. */
+	UFUNCTION(Exec)
+	void QuestSet(int32 QuestID, const FString& State);
+	/** Development builds: DexMeet <AreaObjectID> reports one defeat of the species by this player on the server, as a kill would,
+	 * so the monster book's page (and its habitat) can be tried without hunting. */
+	UFUNCTION(Exec)
+	void DexMeet(int32 AreaObjectID);
 
 	// Owner
 	UPROPERTY(VisibleAnywhere)
@@ -116,19 +163,9 @@ private:
 	// UI 관련
 	UPROPERTY()
 	class UPlayerStatusWidget* StatusWidget;
-	UPROPERTY()
-	class UInventoryWidget* InventoryWidget;
-	UPROPERTY()
-	class UPlayerStatWidget* PlayerStatWidget;
 
 	UPROPERTY(EditDefaultsOnly, Category = "UI")
 	TSubclassOf<class UPlayerStatusWidget> StatusWidgetClass;
-
-	UPROPERTY(EditDefaultsOnly, Category = "UI")
-	TSubclassOf<class UInventoryWidget> InventoryWidgetClass;
-
-	UPROPERTY(EditDefaultsOnly, Category = "UI")
-	TSubclassOf<class UPlayerStatWidget> PlayerStatWidgetClass;
 
 	UPROPERTY(EditDefaultsOnly, Category = "UI")
 	TSubclassOf<class UUserWidget> MissionFailClass;
@@ -202,6 +239,27 @@ private:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* GliderAction;
 
+	/** 도감 (K) */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	UInputAction* DexAction;
+
+	/** 퀘스트 일지 (J) */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	UInputAction* JournalAction;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	UInputAction* MapAction;
+
+	/** The HUD's quest card, made for the local player as play begins. */
+	UPROPERTY(EditDefaultsOnly, Category = "UI")
+	TSubclassOf<class UUserWidget> QuestTrackerClass;
+	UPROPERTY()
+	class UUserWidget* QuestTracker;
+	/** The HUD's round minimap at the top right, above the quest card. */
+	UPROPERTY(EditDefaultsOnly, Category = "UI")
+	TSubclassOf<class UUserWidget> MinimapClass;
+	UPROPERTY()
+	class UUserWidget* Minimap;
+
 	/** FKey Input Action */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* FKeyAction;
@@ -210,8 +268,7 @@ private:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* CKeyAction;
 
-	bool IsMenuActivate = false;
-	bool IsContainerActivate = false;
+	UGameUIManagerSubsystem* GetUI() const;
 
 	// 점프 횟수 추적을 위한 변수
 	float LastJumpTime = 0.0f;
@@ -267,18 +324,6 @@ public:
 	void Server_Crafting_CancelUnfinished(class ACraftingStation* Station);
 
 private:
-	// 상자 UI 위젯
-	UPROPERTY()
-	class UContainerInteractionWidget* ContainerInteractionWidget;
-	UPROPERTY(EditDefaultsOnly, Category = "UI")
-	TSubclassOf<class UContainerInteractionWidget> ContainerInteractionWidgetClass;
-
-	// Crafting UI
-	UPROPERTY()
-	class UCraftingWidget* CraftingWidget;
-	UPROPERTY(EditDefaultsOnly, Category="UI")
-	TSubclassOf<class UCraftingWidget> CraftingWidgetClass;
-
 	// 검증 헬퍼 함수들
 	bool ValidateContainerAccess(class ABaseContainer* Container) const;
 	bool ValidateItemOperation(int32 ItemID, int32 Count) const;

@@ -1,22 +1,26 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Blueprint/UserWidget.h"
+#include "GameUIScreenWidget.h"
 #include "ContainerInteractionWidget.generated.h"
 
 class UInventoryWidget;
 class UContainerWidget;
 class ABaseContainer;
 class UButton;
+class UInventoryComponent;
 
 UCLASS()
-class SONHEIM_API UContainerInteractionWidget : public UUserWidget
+class SONHEIM_API UContainerInteractionWidget : public UGameUIScreenWidget
 {
 	GENERATED_BODY()
+public:
+	UContainerInteractionWidget() { bKeepWhenClosed = true; }
+private:
 
 protected:
-	virtual void NativeConstruct() override;
-	virtual void NativeDestruct() override;
+	virtual void NativeOnInitialized() override;
+	virtual void NativeOnClosed() override;
 
 	// UI 컴포넌트
 	UPROPERTY(meta = (BindWidget))
@@ -32,6 +36,9 @@ protected:
 	UPROPERTY()
 	ABaseContainer* CurrentContainer;
 
+	// 열려 있는 동안 PlayerInventoryWidget이 묶이는 가방
+	TWeakObjectPtr<UInventoryComponent> InventoryComponent;
+
 public:
 	// 상자 UI 열기
 	UFUNCTION(BlueprintCallable, Category = "Container")
@@ -46,4 +53,6 @@ public:
 private:
 	UFUNCTION()
 	void OnCloseButtonClicked();
+	// 서버에 상자를 닫으라고 알린다. 한 번만 보낸다.
+	void ReleaseContainer();
 };

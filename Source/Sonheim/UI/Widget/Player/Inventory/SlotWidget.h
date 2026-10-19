@@ -37,9 +37,15 @@ class SONHEIM_API USlotWidget : public UUserWidget
 public:
 	// 슬롯 초기화 함수
 	void Init(int Index);
-	// 슬롯을 업데이트해주기 위한 함수
+	/** Shows so many of an item; a slot already showing the same leaves its widgets alone, so refreshing a whole bag touches only
+	 * the slots that changed. */
 	void SetItemData(const FItemData* ItemData, int32 NewQuantity);
 	void ClearSlot();
+	/** Shows an item that is only looked at, such as a reward or a material asked for: icon, count and tooltip, no weight, no
+	 * dragging. Size, when given, sets the slot's square. */
+	void ShowItem(const FItemData* ItemData, int32 Count, float Size = 0.f);
+	/** Adds a slot showing so many of an item to an entry box, whatever the box's own entry class; nullptr for an unknown item. */
+	static USlotWidget* AddReadOnly(class UDynamicEntryBox* Box, int32 ItemId, int32 Count, float Size = 0.f);
 
 	UFUNCTION()
 	void SetCraftingMatMode(bool Enable);
@@ -128,15 +134,21 @@ public:
 	void HandleDragOperationEnded(UDragDropOperation* Operation);
 
 private:
+	/** Fills the tooltip with the shown item; done when the pointer comes over the slot, not for every slot a bag shows. */
+	void RefreshToolTip();
+
 	UPROPERTY()
 	UToolTipWidget* ToolTipInstance;
+	/** The item shown (a row of the game instance's item table), null when empty. */
+	const FItemData* ShownItem = nullptr;
 	UPROPERTY()
 	USonheimGameInstance* m_GameInstance;
 
 	bool IsDragging = false;
 
-protected:
+public:
 	bool IsEmpty() const;
+protected:
 
 	// 드롭 가능 여부 판단
 	bool IsDropValidFrom(class USlotWidget* FromSlot) const;

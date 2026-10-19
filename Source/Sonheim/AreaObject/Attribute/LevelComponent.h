@@ -4,6 +4,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Sonheim/ResourceManager/SonheimGameType.h"
+#include "Sonheim/UI/Notice/NoticeWidget.h"
 #include "LevelComponent.generated.h"
 
 class AAreaObject;
@@ -117,6 +118,15 @@ protected:
     // 레벨 업 당 스탯 포인트 획득량
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Level")
     int32 StatPointsPerLevel;
+
+    // 레벨이 오른 플레이어의 화면 가운데에 뜨는 헤드라인. Title과 Detail의 {0}은 새 레벨이고, 팰의 레벨 업에는 뜨지 않는다.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Level|Notice")
+    FNoticeData LevelUpNotice;
+
+    // 레벨 하나당 오르는 능력치. 헤드라인도 이 값을 보여준다.
+    static constexpr int32 LevelUpHP = 10;
+    static constexpr int32 LevelUpAttack = 2;
+    static constexpr int32 LevelUpDefense = 1;
     
 private:
     TMap<int32, FLevelData>* dt_Level;

@@ -8,6 +8,7 @@
 #include "ToolTipWidget.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/Border.h"
+#include "Components/DynamicEntryBox.h"
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
 #include "Components/SizeBox.h"
@@ -31,10 +32,11 @@ void USlotWidget::Init(int Index)
 
 void USlotWidget::SetItemData(const FItemData* ItemData, int32 NewQuantity)
 {
-	// ItemID = NewItemID;
+	if (ItemData == ShownItem && NewQuantity == Quantity) return;
+	ClearSlot();
 	if (NewQuantity != 0)
 	{
-		TXT_Quantity->SetText(FText::FromString(FString::Printf(TEXT("%d"), NewQuantity)));
+		TXT_Quantity->SetText(FText::AsNumber(NewQuantity));
 		TXT_Quantity->SetVisibility(ESlateVisibility::Visible);
 	}
 	if (!FMath::IsNearlyZero(ItemData->Weight))
@@ -53,22 +55,19 @@ void USlotWidget::SetItemData(const FItemData* ItemData, int32 NewQuantity)
 	IMG_Item->SetBrushFromTexture(ItemData->ItemIcon);
 	IMG_Item->SetVisibility(ESlateVisibility::Visible);
 
+	ShownItem = ItemData;
 	ItemID = ItemData->ItemID;
 	Quantity = NewQuantity;
-	//ToDo : Durability 등 묶어서 구조체로 관리해야할듯.. FInventoryItem 의 확장?
+	if (IsHovered()) RefreshToolTip();
+}
 
-	// 툴팁 위젯이 없으면 생성
-	if (!ToolTipInstance && ToolTipWidgetClass)
-	{
-		ToolTipInstance = CreateWidget<UToolTipWidget>(this, ToolTipWidgetClass);
-	}
-
-	// ToolTip 초기화
-	if (ItemData != nullptr && ToolTipInstance != nullptr)
-	{
-		ToolTipInstance->InitToolTip(ItemData, Quantity);
-		SetToolTip(ToolTipInstance);
-	}
+void USlotWidget::RefreshToolTip()
+{
+	if (!ShownItem) return;
+	if (!ToolTipInstance && ToolTipWidgetClass) ToolTipInstance = CreateWidget<UToolTipWidget>(this, ToolTipWidgetClass);
+	if (!ToolTipInstance) return;
+	ToolTipInstance->InitToolTip(ShownItem, Quantity);
+	SetToolTip(ToolTipInstance);
 }
 
 void USlotWidget::ClearSlot()
@@ -77,11 +76,39 @@ void USlotWidget::ClearSlot()
 	TXT_Weight->SetVisibility(ESlateVisibility::Hidden);
 	IMG_Item->SetVisibility(ESlateVisibility::Hidden);
 	IMG_BackGround->SetVisibility(ESlateVisibility::Hidden);
+	ShownItem = nullptr;
 	ItemID = 0;
 	Quantity = 0;
 
 	// ToolTip 초기화
 	SetToolTip(nullptr);
+}
+
+void USlotWidget::ShowItem(const FItemData* ItemData, const int32 Count, const float Size)
+{
+	SetItemData(ItemData, Count);
+	TXT_Weight->SetVisibility(ESlateVisibility::Collapsed);
+	IMG_Border->SetVisibility(ESlateVisibility::HitTestInvisible);
+	bOnlyView = true;
+	bSupportsDragDrop = false;
+	if (Size > 0.f)
+	{
+		SB_Root->SetWidthOverride(Size);
+		SB_Root->SetHeightOverride(Size);
+	}
+}
+
+USlotWidget* USlotWidget::AddReadOnly(UDynamicEntryBox* Box, const int32 ItemId, const int32 Count, const float Size)
+{
+	// ponytail: the inventory's slot Widget Blueprint by path; make it a setting if another slot look is ever wanted.
+	static const TSoftClassPtr<USlotWidget> SlotClass(FSoftObjectPath(TEXT("/Game/_BluePrint/Widget/Player/BP_Slot.BP_Slot_C")));
+	const auto* Game = Box ? Cast<USonheimGameInstance>(Box->GetGameInstance()) : nullptr;
+	const FItemData* Data = Game ? const_cast<USonheimGameInstance*>(Game)->GetDataItem(ItemId) : nullptr;
+	UClass* Class = SlotClass.LoadSynchronous();
+	if (!Data || !Class) return nullptr;
+	USlotWidget* Slot = Box->CreateEntry<USlotWidget>(Class);
+	if (Slot) Slot->ShowItem(Data, Count, Size);
+	return Slot;
 }
 
 void USlotWidget::SetCraftingMatMode(bool Enable)
@@ -101,6 +128,7 @@ bool USlotWidget::IsEmpty() const
 void USlotWidget::NativeOnMouseEnter(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
 	Super::NativeOnMouseEnter(InGeometry, InMouseEvent);
+	RefreshToolTip();
 
 	if (bOnlyView) return;
 

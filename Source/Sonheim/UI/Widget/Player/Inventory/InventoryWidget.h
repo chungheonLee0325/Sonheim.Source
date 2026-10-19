@@ -73,14 +73,12 @@ protected:
 	UPROPERTY(meta=(BindWidget))
 	class UTrashDropZone* DiscardZone;
 
-	UPROPERTY(EditAnywhere, Category="Confirm")
-	TSubclassOf<UConfirmWidget> ConfirmClass;
-
 	// 인벤토리 컴포넌트 참조
 	UPROPERTY(BlueprintReadWrite)
 	UInventoryComponent* InventoryComponent;
 
 public:
+	USlotWidget* GetSlot(int32 Index) const { return SlotWidgets.IsValidIndex(Index) ? SlotWidgets[Index] : nullptr; }
 	UFUNCTION()
 	void UpdateInventoryFromData(const TArray<FInventoryItem>& InventoryData);
 	UFUNCTION()
@@ -146,11 +144,5 @@ private:
 	// 인벤토리 슬롯 아이템 처리
 	void HandleInventorySlotInteraction(USlotWidget* SlotWidget, bool bIsRightClick);
 
-	UPROPERTY()
-	TWeakObjectPtr<USlotWidget> PendingFromSlot;
-	UPROPERTY()
-	bool PendingDiscardMode = false;
-
-	UFUNCTION()
-	void OnConfirmTrashAction(int32 Count, bool bDiscardMode);
+	void OnConfirmTrashAction(int32 SlotIndex, int32 Count, bool bDiscardMode);
 };

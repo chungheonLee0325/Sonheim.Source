@@ -1,4 +1,6 @@
 #include "InteractionComponent.h"
+#include "GameUIManagerSubsystem.h"
+#include "Sonheim/UI/System/UITags.h"
 
 #include "PalCaptureComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -49,6 +51,13 @@ void UInteractionComponent::PerformDetection()
 {
 	if (!OwnerPlayer || !OwnerPlayer->IsLocallyControlled() || OwnerPlayer->IsDie())
 		return;
+	// While a screen holds back gameplay nothing is the F target, so no prompt stands over the screen in the world.
+	const ULocalPlayer* Local = OwnerPlayer->GetController<APlayerController>() ? OwnerPlayer->GetController<APlayerController>()->GetLocalPlayer() : nullptr;
+	if (const UGameUIManagerSubsystem* UI = Local ? Local->GetSubsystem<UGameUIManagerSubsystem>() : nullptr; UI && UI->IsGameplayBlocked())
+	{
+		UpdateInteractable(nullptr, 0);
+		return;
+	}
 
 	UCameraComponent* Camera = OwnerPlayer->GetFollowCamera();
 	if (!Camera) return;
@@ -175,11 +184,13 @@ void UInteractionComponent::ShowMonsterHPBar(class ABaseMonster* Monster)
 	// 새 타이머 설정
 	FTimerHandle NewTimer;
 	FTimerDelegate TimerDel;
-	TimerDel.BindLambda([this, Monster]()
+	// A monster can be destroyed and collected before the timer fires (a finished dungeon run removes its monsters), so the timer
+	// holds it weakly; the raw pointer is only the map key and is never dereferenced.
+	TimerDel.BindWeakLambda(this, [this, Monster, WeakMonster = TWeakObjectPtr<ABaseMonster>(Monster)]()
 	{
-		if (IsValid(Monster))
+		if (ABaseMonster* Shown = WeakMonster.Get())
 		{
-			HideMonsterHPBar(Monster);
+			HideMonsterHPBar(Shown);
 		}
 		else
 		{
