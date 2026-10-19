@@ -1,0 +1,102 @@
+name: Sync from Sonheim
+
+on:
+  # A cross-repository PAT is not required: this repo updates itself.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sync-upstream.yml'
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-sonheim-source
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source mirror
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Checkout upstream Sonheim
+        uses: actions/checkout@v4
+        with:
+          repository: chungheonLee0325/Sonheim
+          ref: main
+          path: _upstream
+          persist-credentials: false
+          sparse-checkout: |
+            README.md
+            Sonheim.png
+            Doc
+            Sonheim/Source
+            Sonheim/Config
+            Sonheim/Plugins
+            Sonheim/Sonheim.uproject
+          sparse-checkout-cone-mode: false
+
+      - name: Refresh source-only mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f _upstream/README.md
+          test -d _upstream/Sonheim/Source
+          test -d _upstream/Doc/Wiki
+
+          mkdir -p Source Config Plugins Doc
+          rsync -a --delete _upstream/Sonheim/Source/ Source/
+          rsync -a --delete _upstream/Sonheim/Config/ Config/
+          rsync -a --delete --include='*/' --include='*/Source/***' --exclude='*' \
+            _upstream/Sonheim/Plugins/ Plugins/
+          rsync -a --delete _upstream/Doc/ Doc/
+          cp _upstream/Sonheim/Sonheim.uproject Sonheim.uproject
+          cp _upstream/Sonheim.png Sonheim.png
+
+          # Keep code links in copied documentation pointing to the mirror layout.
+          python3 - <<'PY'
+          from pathlib import Path
+          for doc in Path('Doc/Wiki').glob('*.md'):
+              text = doc.read_text(encoding='utf-8-sig')
+              for old, new in (
+                  ('(../../Sonheim/Source/', '(../../Source/'),
+                  ('(../../Sonheim/Plugins/', '(../../Plugins/'),
+                  ('(../../Sonheim/Config/', '(../../Config/'),
+                  ('(../../Sonheim/Sonheim.uproject)', '(../../Sonheim.uproject)'),
+              ):
+                  text = text.replace(old, new)
+              doc.write_text(text, encoding='utf-8')
+          PY
+
+          {
+            echo '# Sonheim.Source — source-only mirror'
+            echo
+            echo '> Source and documentation mirror of [Sonheim](https://github.com/chungheonLee0325/Sonheim).'
+            echo '> Changes here are synchronized from the upstream repository.'
+            echo
+            echo 'For the complete Unreal project and content assets, use the main repository.'
+            echo
+            echo '---'
+            echo
+            cat _upstream/README.md
+          } > README.md
+
+          UPSTREAM_SHA="$(git -C _upstream rev-parse --short=12 HEAD)"
+          rm -rf _upstream
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- Source Config Plugins Doc README.md Sonheim.png Sonheim.uproject
+          if git diff --cached --quiet; then
+            echo "Mirror is already current."
+            exit 0
+          fi
+          git commit -m "chore(mirror): sync Sonheim $UPSTREAM_SHA"
+          git push origin HEAD:main
